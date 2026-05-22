@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #1f2937;
+  background: #ffffff;
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+
+.test-interface mark.hl-yellow { background: #FFEB6E; padding: 0; }
+.test-interface .para-num { color: #185FA5; font-weight: 500; font-size: 0.85em; margin-right: 4px; }
+
+.float-toolbar { position: fixed; background: white; border: 1px solid #888; border-radius: 4px; padding: 3px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 9999; display: flex; gap: 2px; }
+.float-toolbar button { background: white; border: 1px solid #ccc; border-radius: 3px; width: 32px; height: 30px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.float-toolbar button:hover { background: #f0f0f0; }
