@@ -28,9 +28,13 @@ export async function GET(request: Request) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      // Force redirect to non-www version
+      const cleanOrigin = origin.replace("www.", "");
+      return NextResponse.redirect(`${cleanOrigin}${next}`);
     }
+    // Show the actual error message
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(error.message)}`);
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth_failed`);
+  return NextResponse.redirect(`${origin}/login?error=no_code`);
 }
