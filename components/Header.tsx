@@ -34,10 +34,9 @@ export default async function Header() {
               <LogoutButton />
             </>
           ) : (
-            <>
-              <Link href="/login" className="px-3 py-1.5 hover:bg-gray-100 rounded">Login</Link>
-              <Link href="/signup" className="px-3 py-1.5 bg-brand text-white rounded hover:bg-brand-dark">Sign up</Link>
-            </>
+            <Link href="/login" className="px-3 py-1.5 bg-brand text-white rounded hover:bg-brand-dark font-medium">
+              Sign in
+            </Link>
           )}
         </nav>
       </div>
