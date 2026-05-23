@@ -7,28 +7,17 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/dashboard";
 
-  console.log("[auth/callback] hit", { 
-    hasCode: !!code, 
-    origin, 
-    url: request.url 
-  });
-
   if (code) {
     const cookieStore = cookies();
-    
-    // Log what cookies we have
-    const allCookies = cookieStore.getAll();
-    console.log("[auth/callback] cookies present:", 
-      allCookies.map(c => c.name)
-    );
-
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          getAll() { return cookieStore.getAll(); },
-          setAll(cookiesToSet) {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             );
@@ -37,27 +26,12 @@ export async function GET(request: Request) {
       }
     );
 
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-    
-    if (error) {
-      console.error("[auth/callback] exchange FAILED:", {
-        message: error.message,
-        status: error.status,
-        name: error.name,
-        code: error.code,
-      });
-      return NextResponse.redirect(
-        `${origin}/login?error=${encodeURIComponent(error.message)}`
-      );
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (!error) {
+      return NextResponse.redirect(`${origin}${next}`);
     }
-
-    console.log("[auth/callback] exchange SUCCESS:", { 
-      userId: data.user?.id, 
-      email: data.user?.email 
-    });
-    return NextResponse.redirect(`${origin}${next}`);
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(error.message)}`);
   }
-  
-  console.error("[auth/callback] no code parameter");
+
   return NextResponse.redirect(`${origin}/login?error=no_code`);
 }
