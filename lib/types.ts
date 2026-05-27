@@ -1,8 +1,18 @@
+// ============ QUESTION TYPES ============
+
 export type TfngQuestion = {
   id: number;
   type: "tfng";
   text: string;
   answer: "TRUE" | "FALSE" | "NOT GIVEN";
+  explanation: string;
+};
+
+export type YnngQuestion = {
+  id: number;
+  type: "ynng";
+  text: string;
+  answer: "YES" | "NO" | "NOT GIVEN";
   explanation: string;
 };
 
@@ -16,7 +26,42 @@ export type GapQuestion = {
   explanation: string;
 };
 
-export type Question = TfngQuestion | GapQuestion;
+export type McqQuestion = {
+  id: number;
+  type: "mcq";
+  text: string;
+  options: string[];           // ["option A text","option B text",...]
+  answer: string;              // "A" | "B" | "C" | "D"
+  explanation: string;
+};
+
+export type MatchParaQuestion = {
+  id: number;
+  type: "match_para";
+  text: string;
+  options?: string[];          // optional list of paragraph letters available
+  answer: string;              // "A" | "B" | ...
+  explanation: string;
+};
+
+export type MatchListQuestion = {
+  id: number;
+  type: "match_list";
+  text: string;
+  list: { label: string; text: string }[];
+  answer: string;              // "A" | "B" | ...
+  explanation: string;
+};
+
+export type Question =
+  | TfngQuestion
+  | YnngQuestion
+  | GapQuestion
+  | McqQuestion
+  | MatchParaQuestion
+  | MatchListQuestion;
+
+// ============ TEST ============
 
 export type ReadingTest = {
   id: string;
@@ -33,6 +78,8 @@ export type ReadingTest = {
   is_published: boolean;
   is_premium: boolean;
 };
+
+// ============ BAND SCORE ============
 
 export function getBandScore(rawScore: number): string {
   if (rawScore >= 39) return "9.0";
@@ -51,6 +98,8 @@ export function getBandScore(rawScore: number): string {
   return "2.5 or below";
 }
 
+// ============ ANSWER CHECKING ============
+
 export function normaliseAnswer(s: string): string {
   return (s || "").toString().trim().toLowerCase().replace(/[.,;:!?'"]/g, "").replace(/\s+/g, " ");
 }
@@ -58,4 +107,21 @@ export function normaliseAnswer(s: string): string {
 export function checkGapAnswer(question: GapQuestion, userAnswer: string): boolean {
   const norm = normaliseAnswer(userAnswer);
   return question.accept.some(a => normaliseAnswer(a) === norm);
+}
+
+// Universal checker that handles all question types
+export function checkAnswer(question: Question, userAnswer: string): boolean {
+  const norm = normaliseAnswer(userAnswer);
+  switch (question.type) {
+    case "tfng":
+    case "ynng":
+    case "mcq":
+    case "match_para":
+    case "match_list":
+      return normaliseAnswer(question.answer) === norm;
+    case "gap":
+      return question.accept.some(a => normaliseAnswer(a) === norm);
+    default:
+      return false;
+  }
 }
