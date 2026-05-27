@@ -2,31 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import type { ReadingTest, Question } from "@/lib/types";
 
-type Question = {
-  id: number;
-  type: "tfng" | "ynng" | "mcq" | "gap" | "match_para" | "match_list";
-  text?: string;
-  before?: string;
-  after?: string;
-  options?: string[];
-  list?: { label: string; text: string }[];
-  answer: string;
-  accept?: string[];
-  explanation?: string;
+type Props = {
+  test: ReadingTest;
+  userId?: string | null;
 };
 
-type Test = {
-  id: string;
-  slug: string;
-  title: string;
-  passage_title: string;
-  paragraphs: string[];
-  questions: Question[];
-  time_minutes: number;
-};
-
-export default function TestInterface({ test }: { test: Test }) {
+export default function TestInterface({ test, userId }: Props) {
   const router = useRouter();
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -60,19 +43,25 @@ export default function TestInterface({ test }: { test: Test }) {
     setAnswers((a) => ({ ...a, [id]: value }));
   }
 
+  function normalise(s: string): string {
+    return (s || "").toString().trim().toLowerCase().replace(/[.,;:!?'"]/g, "").replace(/\s+/g, " ");
+  }
+
   async function handleSubmit() {
     const timeSpent = Math.floor((Date.now() - startTime) / 1000);
 
-    // Score locally
     let correct = 0;
     const details: any[] = [];
-    test.questions.forEach((q) => {
-      const userAnswer = (answers[q.id] || "").trim();
-      const correctAnswer = q.answer.trim();
-      const accept = q.accept || [correctAnswer];
-      const isCorrect = accept.some(
-        (a) => a.toLowerCase().trim() === userAnswer.toLowerCase().trim()
-      );
+    test.questions.forEach((q: Question) => {
+      const userAnswer = ((answers[q.id] as string) || "").trim();
+      let isCorrect = false;
+
+      if (q.type === "gap") {
+        isCorrect = q.accept.some((a: string) => normalise(a) === normalise(userAnswer));
+      } else {
+        isCorrect = normalise(q.answer) === normalise(userAnswer);
+      }
+
       if (isCorrect) correct++;
       details.push({ ...q, userAnswer, isCorrect });
     });
@@ -84,23 +73,24 @@ export default function TestInterface({ test }: { test: Test }) {
     setResults({ correct, total, accuracy, bandScore, details });
     setSubmitted(true);
 
-    // Save attempt (if user is logged in — backend handles auth)
-    try {
-      await fetch("/api/attempts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          test_id: test.id,
-          test_slug: test.slug,
-          answers,
-          raw_score: correct,
-          total_questions: total,
-          band_score: bandScore,
-          time_spent_seconds: timeSpent,
-        }),
-      });
-    } catch (e) {
-      console.error("Could not save attempt:", e);
+    if (userId) {
+      try {
+        await fetch("/api/attempts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            test_id: test.id,
+            test_slug: test.slug,
+            answers,
+            raw_score: correct,
+            total_questions: total,
+            band_score: bandScore,
+            time_spent_seconds: timeSpent,
+          }),
+        });
+      } catch (e) {
+        console.error("Could not save attempt:", e);
+      }
     }
   }
 
@@ -226,7 +216,7 @@ export default function TestInterface({ test }: { test: Test }) {
         <div className="bg-white border border-gray-200 rounded-xl p-6 lg:max-h-[80vh] lg:overflow-y-auto">
           <h2 className="text-xl font-bold mb-4">Questions</h2>
           <div className="space-y-6">
-            {test.questions.map((q) => (
+            {test.questions.map((q: Question) => (
               <QuestionBlock
                 key={q.id}
                 question={q}
@@ -248,10 +238,10 @@ export default function TestInterface({ test }: { test: Test }) {
 }
 
 function hasParagraphLetters(questions: Question[]): boolean {
-  return questions.some((q) => q.type === "match_para");
+  return questions.some((q: Question) => q.type === "match_para");
 }
 
-function renderQuestionPreview(q: Question): string {
+function renderQuestionPreview(q: any): string {
   if (q.text) return q.text;
   if (q.before && q.after) return `${q.before} _____ ${q.after}`;
   if (q.before) return q.before;
@@ -269,152 +259,120 @@ function QuestionBlock({
 }) {
   const id = question.id;
 
-  switch (question.type) {
-    case "tfng":
-      return (
-        <div>
-          <div className="text-sm font-medium mb-2">
-            <span className="font-bold mr-2">{id}.</span>
-            {question.text}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {["TRUE", "FALSE", "NOT GIVEN"].map((opt) => (
-              <button
-                key={opt}
-                onClick={() => onChange(opt)}
-                className={`px-3 py-1.5 text-sm rounded border ${
-                  value === opt
-                    ? "bg-brand text-white border-brand"
-                    : "border-gray-300 hover:bg-gray-50"
-                }`}
-              >
-                {opt}
-              </button>
-            ))}
-          </div>
+  if (question.type === "tfng") {
+    return (
+      <div>
+        <div className="text-sm font-medium mb-2">
+          <span className="font-bold mr-2">{id}.</span>
+          {question.text}
         </div>
-      );
-
-    case "ynng":
-      return (
-        <div>
-          <div className="text-sm font-medium mb-2">
-            <span className="font-bold mr-2">{id}.</span>
-            {question.text}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {["YES", "NO", "NOT GIVEN"].map((opt) => (
-              <button
-                key={opt}
-                onClick={() => onChange(opt)}
-                className={`px-3 py-1.5 text-sm rounded border ${
-                  value === opt
-                    ? "bg-brand text-white border-brand"
-                    : "border-gray-300 hover:bg-gray-50"
-                }`}
-              >
-                {opt}
-              </button>
-            ))}
-          </div>
+        <div className="flex flex-wrap gap-2">
+          {["TRUE", "FALSE", "NOT GIVEN"].map((opt) => (
+            <button key={opt} onClick={() => onChange(opt)}
+              className={`px-3 py-1.5 text-sm rounded border ${value === opt ? "bg-brand text-white border-brand" : "border-gray-300 hover:bg-gray-50"}`}>
+              {opt}
+            </button>
+          ))}
         </div>
-      );
-
-    case "mcq":
-      return (
-        <div>
-          <div className="text-sm font-medium mb-2">
-            <span className="font-bold mr-2">{id}.</span>
-            {question.text}
-          </div>
-          <div className="space-y-1.5">
-            {(question.options || []).map((opt, i) => {
-              const letter = String.fromCharCode(65 + i);
-              return (
-                <button
-                  key={letter}
-                  onClick={() => onChange(letter)}
-                  className={`w-full text-left px-3 py-2 text-sm rounded border ${
-                    value === letter
-                      ? "bg-brand text-white border-brand"
-                      : "border-gray-300 hover:bg-gray-50"
-                  }`}
-                >
-                  <span className="font-bold mr-2">{letter}.</span>
-                  {opt}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      );
-
-    case "gap":
-      return (
-        <div>
-          <div className="text-sm font-medium">
-            <span className="font-bold mr-2">{id}.</span>
-            {question.before}
-            <input
-              type="text"
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              className="mx-1 px-2 py-0.5 border border-gray-300 rounded text-sm w-32 focus:border-brand-accent focus:ring-1 focus:ring-brand-light outline-none"
-              placeholder="answer"
-            />
-            {question.after}
-          </div>
-        </div>
-      );
-
-    case "match_para":
-      return (
-        <div>
-          <div className="text-sm font-medium mb-2">
-            <span className="font-bold mr-2">{id}.</span>
-            {question.text}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {["A", "B", "C", "D", "E", "F", "G"].slice(0, (question.options || []).length || 6).map((letter) => (
-              <button
-                key={letter}
-                onClick={() => onChange(letter)}
-                className={`w-10 h-10 text-sm font-bold rounded border ${
-                  value === letter
-                    ? "bg-brand text-white border-brand"
-                    : "border-gray-300 hover:bg-gray-50"
-                }`}
-              >
-                {letter}
-              </button>
-            ))}
-          </div>
-        </div>
-      );
-
-    case "match_list":
-      return (
-        <div>
-          <div className="text-sm font-medium mb-2">
-            <span className="font-bold mr-2">{id}.</span>
-            {question.text}
-          </div>
-          <select
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:border-brand-accent focus:ring-1 focus:ring-brand-light outline-none"
-          >
-            <option value="">— Select —</option>
-            {(question.list || []).map((item) => (
-              <option key={item.label} value={item.label}>
-                {item.label}. {item.text}
-              </option>
-            ))}
-          </select>
-        </div>
-      );
-
-    default:
-      return <div>Unknown question type: {question.type}</div>;
+      </div>
+    );
   }
+
+  if (question.type === "ynng") {
+    return (
+      <div>
+        <div className="text-sm font-medium mb-2">
+          <span className="font-bold mr-2">{id}.</span>
+          {question.text}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {["YES", "NO", "NOT GIVEN"].map((opt) => (
+            <button key={opt} onClick={() => onChange(opt)}
+              className={`px-3 py-1.5 text-sm rounded border ${value === opt ? "bg-brand text-white border-brand" : "border-gray-300 hover:bg-gray-50"}`}>
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (question.type === "mcq") {
+    return (
+      <div>
+        <div className="text-sm font-medium mb-2">
+          <span className="font-bold mr-2">{id}.</span>
+          {question.text}
+        </div>
+        <div className="space-y-1.5">
+          {question.options.map((opt: string, i: number) => {
+            const letter = String.fromCharCode(65 + i);
+            return (
+              <button key={letter} onClick={() => onChange(letter)}
+                className={`w-full text-left px-3 py-2 text-sm rounded border ${value === letter ? "bg-brand text-white border-brand" : "border-gray-300 hover:bg-gray-50"}`}>
+                <span className="font-bold mr-2">{letter}.</span>{opt}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (question.type === "gap") {
+    return (
+      <div>
+        <div className="text-sm font-medium">
+          <span className="font-bold mr-2">{id}.</span>
+          {question.before}
+          <input type="text" value={value} onChange={(e) => onChange(e.target.value)}
+            className="mx-1 px-2 py-0.5 border border-gray-300 rounded text-sm w-32 focus:border-brand-accent focus:ring-1 focus:ring-brand-light outline-none"
+            placeholder="answer" />
+          {question.after}
+        </div>
+      </div>
+    );
+  }
+
+  if (question.type === "match_para") {
+    const letters = question.options || ["A", "B", "C", "D", "E", "F"];
+    return (
+      <div>
+        <div className="text-sm font-medium mb-2">
+          <span className="font-bold mr-2">{id}.</span>
+          {question.text}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {letters.map((letter: string) => (
+            <button key={letter} onClick={() => onChange(letter)}
+              className={`w-10 h-10 text-sm font-bold rounded border ${value === letter ? "bg-brand text-white border-brand" : "border-gray-300 hover:bg-gray-50"}`}>
+              {letter}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (question.type === "match_list") {
+    return (
+      <div>
+        <div className="text-sm font-medium mb-2">
+          <span className="font-bold mr-2">{id}.</span>
+          {question.text}
+        </div>
+        <select value={value} onChange={(e) => onChange(e.target.value)}
+          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:border-brand-accent focus:ring-1 focus:ring-brand-light outline-none">
+          <option value="">— Select —</option>
+          {question.list.map((item: { label: string; text: string }) => (
+            <option key={item.label} value={item.label}>
+              {item.label}. {item.text}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  return <div>Unknown question type</div>;
 }
