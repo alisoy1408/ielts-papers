@@ -2,23 +2,32 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 
 export async function POST(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  try {
+    const supabase = createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-  if (!user) {
-    return NextResponse.json({ error: "Not logged in" }, { status: 401 });
-  }
+    if (authError) {
+      console.error("Auth error:", authError);
+      return NextResponse.json({ error: "Auth error: " + authError.message }, { status: 401 });
+    }
 
-  const body = await request.json();
-  const { test_id, test_slug, answers, raw_score, total_questions, band_score, time_spent_seconds } = body;
+    if (!user) {
+      return NextResponse.json({ error: "Not logged in (no user in session)" }, { status: 401 });
+    }
 
-  if (!test_id || !test_slug || raw_score === undefined || !total_questions) {
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-  }
+    const body = await request.json();
+    console.log("Received body:", JSON.stringify(body));
 
-  const { data, error } = await supabase
-    .from("attempts")
-    .insert({
+    const { test_id, test_slug, answers, raw_score, total_questions, band_score, time_spent_seconds } = body;
+
+    if (!test_id || !test_slug || raw_score === undefined || !total_questions) {
+      return NextResponse.json({
+        error: "Missing required fields",
+        received: { test_id, test_slug, raw_score, total_questions }
+      }, { status: 400 });
+    }
+
+    const insertData = {
       user_id: user.id,
       test_id,
       test_slug,
@@ -27,13 +36,33 @@ export async function POST(request: Request) {
       total_questions,
       band_score,
       time_spent_seconds,
-    })
-    .select()
-    .single();
+    };
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.log("Inserting:", JSON.stringify(insertData));
+
+    const { data, error } = await supabase
+      .from("attempts")
+      .insert(insertData)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("DB insert error:", error);
+      return NextResponse.json({
+        error: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      }, { status: 500 });
+    }
+
+    return NextResponse.json({ attempt: data });
+
+  } catch (err: any) {
+    console.error("Unexpected error in POST /api/attempts:", err);
+    return NextResponse.json({
+      error: "Unexpected error: " + (err?.message || String(err)),
+      stack: err?.stack
+    }, { status: 500 });
   }
-
-  return NextResponse.json({ attempt: data });
 }
