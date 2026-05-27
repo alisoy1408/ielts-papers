@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { ReadingTest, Question } from "@/lib/types";
 
@@ -9,16 +9,33 @@ type Props = {
   userId?: string | null;
 };
 
+type FontSize = "sm" | "md" | "lg";
+
+const FONT_CLASS: Record<FontSize, string> = {
+  sm: "text-sm leading-relaxed",
+  md: "text-base leading-relaxed",
+  lg: "text-lg leading-loose",
+};
+
 export default function TestInterface({ test, userId }: Props) {
   const router = useRouter();
+
+  // ============ STATE ============
+  const [showIntro, setShowIntro] = useState(true);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [submitted, setSubmitted] = useState(false);
   const [results, setResults] = useState<any>(null);
   const [timeLeft, setTimeLeft] = useState(test.time_minutes * 60);
-  const [startTime] = useState(Date.now());
+  const [startTime, setStartTime] = useState(Date.now());
+  const [fontSize, setFontSize] = useState<FontSize>("md");
+  const [splitPct, setSplitPct] = useState(50);
+  const [isDragging, setIsDragging] = useState(false);
 
+  const passageRef = useRef<HTMLDivElement | null>(null);
+
+  // ============ TIMER ============
   useEffect(() => {
-    if (submitted) return;
+    if (submitted || showIntro) return;
     const timer = setInterval(() => {
       setTimeLeft((t) => {
         if (t <= 1) {
@@ -31,8 +48,78 @@ export default function TestInterface({ test, userId }: Props) {
     }, 1000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitted]);
+  }, [submitted, showIntro]);
 
+  // ============ DRAGGING SPLITTER ============
+  useEffect(() => {
+    if (!isDragging) return;
+
+    function onMove(e: MouseEvent) {
+      const container = document.getElementById("split-container");
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      // Constrain between 25% and 75%
+      const constrained = Math.max(25, Math.min(75, pct));
+      setSplitPct(constrained);
+    }
+
+    function onUp() {
+      setIsDragging(false);
+    }
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isDragging]);
+
+  // ============ HIGHLIGHT ON DOUBLE-CLICK / SELECTION ============
+  function handlePassageMouseUp() {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) return;
+    const range = selection.getRangeAt(0);
+    if (!passageRef.current || !passageRef.current.contains(range.commonAncestorContainer)) return;
+
+    try {
+      const span = document.createElement("span");
+      span.className = "bg-yellow-200 cursor-pointer";
+      span.dataset.highlight = "1";
+      span.title = "Click to remove highlight";
+      span.onclick = function () {
+        const parent = span.parentNode;
+        if (!parent) return;
+        while (span.firstChild) parent.insertBefore(span.firstChild, span);
+        parent.removeChild(span);
+        parent.normalize();
+      };
+      range.surroundContents(span);
+      selection.removeAllRanges();
+    } catch (e) {
+      // surroundContents fails on partial-element selections — ignore
+    }
+  }
+
+  function clearHighlights() {
+    if (!passageRef.current) return;
+    const spans = passageRef.current.querySelectorAll('span[data-highlight="1"]');
+    spans.forEach((span) => {
+      const parent = span.parentNode;
+      if (!parent) return;
+      while (span.firstChild) parent.insertBefore(span.firstChild, span);
+      parent.removeChild(span);
+    });
+    passageRef.current.normalize();
+  }
+
+  // ============ HELPERS ============
   function formatTime(seconds: number) {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -45,6 +132,11 @@ export default function TestInterface({ test, userId }: Props) {
 
   function normalise(s: string): string {
     return (s || "").toString().trim().toLowerCase().replace(/[.,;:!?'"]/g, "").replace(/\s+/g, " ");
+  }
+
+  function startTest() {
+    setShowIntro(false);
+    setStartTime(Date.now());
   }
 
   async function handleSubmit() {
@@ -110,6 +202,68 @@ export default function TestInterface({ test, userId }: Props) {
     return 3.5;
   }
 
+  function answeredCount(): number {
+    return Object.values(answers).filter((v) => v && v.toString().trim() !== "").length;
+  }
+
+  // ============ INTRO MODAL ============
+  if (showIntro) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+        <div className="bg-white rounded-xl max-w-2xl w-full p-8 shadow-2xl">
+          <div className="text-center mb-6">
+            <div className="text-xs text-gray-500 uppercase tracking-wide mb-2">IELTS Academic Reading</div>
+            <h1 className="text-2xl font-bold mb-2">{test.title}</h1>
+            <div className="text-sm text-gray-600">{test.difficulty || ""}</div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="bg-blue-50 border border-blue-200 rounded p-3 text-center">
+              <div className="text-xs text-gray-600">Questions</div>
+              <div className="text-xl font-bold text-blue-900">{test.questions.length}</div>
+            </div>
+            <div className="bg-green-50 border border-green-200 rounded p-3 text-center">
+              <div className="text-xs text-gray-600">Time</div>
+              <div className="text-xl font-bold text-green-900">{test.time_minutes} min</div>
+            </div>
+            <div className="bg-purple-50 border border-purple-200 rounded p-3 text-center">
+              <div className="text-xs text-gray-600">Passage</div>
+              <div className="text-xl font-bold text-purple-900">{test.paragraphs.length} ¶</div>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 border border-gray-200 rounded p-4 mb-6 text-sm text-gray-700">
+            <div className="font-bold mb-2">Before you start:</div>
+            <ul className="space-y-1 list-disc list-inside">
+              <li>The test starts when you click <strong>Begin test</strong>.</li>
+              <li>The timer will count down — your answers auto-submit when time runs out.</li>
+              <li>Select text in the passage to <strong>highlight</strong> it. Click a highlight to remove.</li>
+              <li>Use the <strong>A A A</strong> buttons to change passage text size.</li>
+              <li>Drag the centre divider to resize the passage and questions panels.</li>
+              <li>You can return to any question before submitting.</li>
+            </ul>
+          </div>
+
+          <div className="flex justify-between items-center">
+            <button
+              onClick={() => router.push("/")}
+              className="px-4 py-2 text-gray-600 hover:text-gray-900"
+            >
+              ← Back to tests
+            </button>
+            <button
+              onClick={startTest}
+              className="px-6 py-3 bg-brand text-white font-bold rounded-md hover:bg-brand-dark"
+            >
+              Begin test →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ RESULTS PAGE ============
   if (submitted && results) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-8">
@@ -130,7 +284,7 @@ export default function TestInterface({ test, userId }: Props) {
               <div className="text-3xl font-bold">{results.bandScore}</div>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap">
             <button onClick={() => window.location.reload()} className="px-4 py-2 bg-brand text-white rounded hover:bg-brand-dark">
               Try again
             </button>
@@ -177,32 +331,85 @@ export default function TestInterface({ test, userId }: Props) {
     );
   }
 
+  // ============ MAIN TEST UI ============
   return (
-    <div className="max-w-7xl mx-auto px-4 py-4">
-      {/* Header */}
-      <div className="sticky top-0 bg-white border-b border-gray-200 py-3 mb-4 flex justify-between items-center z-40">
-        <div>
-          <h1 className="font-bold text-lg">{test.title}</h1>
-          <p className="text-xs text-gray-500">{test.questions.length} questions</p>
+    <div className="max-w-[1400px] mx-auto px-2 lg:px-4 py-3">
+      {/* Top toolbar */}
+      <div className="bg-white border border-gray-200 rounded-t-lg px-4 py-2 flex flex-wrap items-center gap-3 justify-between">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div>
+            <div className="text-xs text-gray-500 uppercase tracking-wide">IELTS Reading</div>
+            <div className="font-bold text-sm">{test.title}</div>
+          </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className={`px-3 py-1 rounded font-mono font-bold ${timeLeft < 300 ? "bg-red-100 text-red-700" : "bg-gray-100"}`}>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Font size controls */}
+          <div className="flex items-center border border-gray-300 rounded overflow-hidden text-xs">
+            <button
+              onClick={() => setFontSize("sm")}
+              className={`px-2 py-1 ${fontSize === "sm" ? "bg-brand text-white" : "bg-white hover:bg-gray-50"}`}
+              title="Small text"
+            >
+              A
+            </button>
+            <button
+              onClick={() => setFontSize("md")}
+              className={`px-2 py-1 text-sm ${fontSize === "md" ? "bg-brand text-white" : "bg-white hover:bg-gray-50"}`}
+              title="Medium text"
+            >
+              A
+            </button>
+            <button
+              onClick={() => setFontSize("lg")}
+              className={`px-2 py-1 text-base ${fontSize === "lg" ? "bg-brand text-white" : "bg-white hover:bg-gray-50"}`}
+              title="Large text"
+            >
+              A
+            </button>
+          </div>
+
+          {/* Clear highlights */}
+          <button
+            onClick={clearHighlights}
+            className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
+            title="Remove all highlights"
+          >
+            ✎ Clear highlights
+          </button>
+
+          {/* Timer */}
+          <div className={`px-3 py-1 rounded font-mono font-bold text-sm ${timeLeft < 300 ? "bg-red-100 text-red-700" : "bg-gray-100"}`}>
             ⏱ {formatTime(timeLeft)}
           </div>
-          <button onClick={handleSubmit} className="px-4 py-2 bg-brand text-white rounded hover:bg-brand-dark font-medium">
+
+          {/* Submit */}
+          <button
+            onClick={handleSubmit}
+            className="px-4 py-1.5 bg-brand text-white rounded hover:bg-brand-dark font-medium text-sm"
+          >
             Submit
           </button>
         </div>
       </div>
 
-      {/* Split view */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Passage */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6 lg:max-h-[80vh] lg:overflow-y-auto">
-          <h2 className="text-xl font-bold mb-4">{test.passage_title}</h2>
-          <div className="prose prose-sm max-w-none">
+      {/* Split-view container */}
+      <div
+        id="split-container"
+        className="relative flex border border-gray-200 border-t-0 rounded-b-lg bg-white overflow-hidden"
+        style={{ height: "calc(100vh - 180px)", minHeight: "500px" }}
+      >
+        {/* Passage panel */}
+        <div
+          ref={passageRef}
+          onMouseUp={handlePassageMouseUp}
+          className="overflow-y-auto p-5 border-r border-gray-200"
+          style={{ width: `${splitPct}%` }}
+        >
+          <h2 className="text-xl font-bold mb-3">{test.passage_title}</h2>
+          <div className={FONT_CLASS[fontSize]}>
             {test.paragraphs.map((p, i) => (
-              <p key={i} className="mb-3 text-gray-800 leading-relaxed">
+              <p key={i} className="mb-3 text-gray-800">
                 {hasParagraphLetters(test.questions) && (
                   <span className="font-bold mr-2">{String.fromCharCode(65 + i)}</span>
                 )}
@@ -212,22 +419,39 @@ export default function TestInterface({ test, userId }: Props) {
           </div>
         </div>
 
-        {/* Questions */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6 lg:max-h-[80vh] lg:overflow-y-auto">
-          <h2 className="text-xl font-bold mb-4">Questions</h2>
-          <div className="space-y-6">
-            {test.questions.map((q: Question) => (
-              <div key={q.id}>
-                {(q as any).section_heading && (
-                  <SectionHeading data={(q as any).section_heading} />
-                )}
-                <QuestionBlock
-                  question={q}
-                  value={answers[q.id] || ""}
-                  onChange={(v) => setAnswer(q.id, v)}
-                />
-              </div>
-            ))}
+        {/* Splitter handle */}
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          className="w-1 bg-gray-200 hover:bg-brand cursor-col-resize flex-shrink-0 relative group"
+          title="Drag to resize"
+        >
+          <div className="absolute inset-y-0 -left-1 -right-1 group-hover:bg-brand/20"></div>
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-8 bg-gray-400 rounded-full group-hover:bg-brand"></div>
+        </div>
+
+        {/* Questions panel */}
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-bold">Questions</h2>
+            <div className="text-xs text-gray-500">{answeredCount()} / {test.questions.length} answered</div>
+          </div>
+          <div className="space-y-5">
+            {test.questions.map((q: Question) => {
+              const heading = (q as any).section_heading;
+              return (
+                <div key={q.id}>
+                  {heading && <SectionHeading data={heading} />}
+                  <QuestionBlock
+                    question={q}
+                    value={answers[q.id] || ""}
+                    onChange={(v) => setAnswer(q.id, v)}
+                  />
+                </div>
+              );
+            })}
           </div>
           <button
             onClick={handleSubmit}
@@ -236,6 +460,27 @@ export default function TestInterface({ test, userId }: Props) {
             Submit answers
           </button>
         </div>
+      </div>
+
+      {/* Question navigation (bottom) */}
+      <div className="bg-white border border-gray-200 border-t-0 rounded-b-lg px-4 py-2 mt-2 flex items-center gap-2 overflow-x-auto">
+        <div className="text-xs text-gray-500 flex-shrink-0">Questions:</div>
+        {test.questions.map((q) => {
+          const isAnswered = answers[q.id] && answers[q.id].toString().trim() !== "";
+          return (
+            <a
+              key={q.id}
+              href={`#q-${q.id}`}
+              className={`flex-shrink-0 w-7 h-7 text-xs flex items-center justify-center rounded border ${
+                isAnswered
+                  ? "bg-brand text-white border-brand"
+                  : "bg-white border-gray-300 hover:bg-gray-50"
+              }`}
+            >
+              {q.id}
+            </a>
+          );
+        })}
       </div>
     </div>
   );
@@ -252,6 +497,7 @@ function renderQuestionPreview(q: any): string {
   return "Question";
 }
 
+// ============ SECTION HEADING ============
 type SectionHeadingData = {
   title?: string;
   instruction?: string;
@@ -262,7 +508,7 @@ type SectionHeadingData = {
 
 function SectionHeading({ data }: { data: SectionHeadingData }) {
   return (
-    <div className="bg-blue-50 border-l-4 border-blue-400 px-4 py-3 mb-4 rounded-r">
+    <div className="bg-blue-50 border-l-4 border-blue-400 px-4 py-3 mb-3 rounded-r">
       {data.title && (
         <div className="font-bold text-sm text-blue-900 mb-1">{data.title}</div>
       )}
@@ -287,6 +533,7 @@ function SectionHeading({ data }: { data: SectionHeadingData }) {
   );
 }
 
+// ============ QUESTION BLOCK ============
 function QuestionBlock({
   question,
   value,
@@ -300,7 +547,7 @@ function QuestionBlock({
 
   if (question.type === "tfng") {
     return (
-      <div>
+      <div id={`q-${id}`} className="scroll-mt-4">
         <div className="text-sm font-medium mb-2">
           <span className="font-bold mr-2">{id}.</span>
           {question.text}
@@ -319,7 +566,7 @@ function QuestionBlock({
 
   if (question.type === "ynng") {
     return (
-      <div>
+      <div id={`q-${id}`} className="scroll-mt-4">
         <div className="text-sm font-medium mb-2">
           <span className="font-bold mr-2">{id}.</span>
           {question.text}
@@ -338,7 +585,7 @@ function QuestionBlock({
 
   if (question.type === "mcq") {
     return (
-      <div>
+      <div id={`q-${id}`} className="scroll-mt-4">
         <div className="text-sm font-medium mb-2">
           <span className="font-bold mr-2">{id}.</span>
           {question.text}
@@ -360,7 +607,7 @@ function QuestionBlock({
 
   if (question.type === "gap") {
     return (
-      <div>
+      <div id={`q-${id}`} className="scroll-mt-4">
         <div className="text-sm font-medium">
           <span className="font-bold mr-2">{id}.</span>
           {question.before}
@@ -376,7 +623,7 @@ function QuestionBlock({
   if (question.type === "match_para") {
     const letters = question.options || ["A", "B", "C", "D", "E", "F"];
     return (
-      <div>
+      <div id={`q-${id}`} className="scroll-mt-4">
         <div className="text-sm font-medium mb-2">
           <span className="font-bold mr-2">{id}.</span>
           {question.text}
@@ -395,7 +642,7 @@ function QuestionBlock({
 
   if (question.type === "match_list") {
     return (
-      <div>
+      <div id={`q-${id}`} className="scroll-mt-4">
         <div className="text-sm font-medium mb-2">
           <span className="font-bold mr-2">{id}.</span>
           {question.text}
