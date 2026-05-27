@@ -217,12 +217,16 @@ export default function TestInterface({ test, userId }: Props) {
           <h2 className="text-xl font-bold mb-4">Questions</h2>
           <div className="space-y-6">
             {test.questions.map((q: Question) => (
-              <QuestionBlock
-                key={q.id}
-                question={q}
-                value={answers[q.id] || ""}
-                onChange={(v) => setAnswer(q.id, v)}
-              />
+              <div key={q.id}>
+                {(q as any).section_heading && (
+                  <SectionHeading data={(q as any).section_heading} />
+                )}
+                <QuestionBlock
+                  question={q}
+                  value={answers[q.id] || ""}
+                  onChange={(v) => setAnswer(q.id, v)}
+                />
+              </div>
             ))}
           </div>
           <button
@@ -246,6 +250,41 @@ function renderQuestionPreview(q: any): string {
   if (q.before && q.after) return `${q.before} _____ ${q.after}`;
   if (q.before) return q.before;
   return "Question";
+}
+
+type SectionHeadingData = {
+  title?: string;
+  instruction?: string;
+  legend?: string[];
+  list?: string[];
+  summary?: string;
+};
+
+function SectionHeading({ data }: { data: SectionHeadingData }) {
+  return (
+    <div className="bg-blue-50 border-l-4 border-blue-400 px-4 py-3 mb-4 rounded-r">
+      {data.title && (
+        <div className="font-bold text-sm text-blue-900 mb-1">{data.title}</div>
+      )}
+      {data.instruction && (
+        <div className="text-sm text-gray-800 whitespace-pre-line">{data.instruction}</div>
+      )}
+      {data.legend && data.legend.length > 0 && (
+        <div className="mt-2 text-xs text-gray-700 space-y-0.5">
+          {data.legend.map((line, i) => <div key={i}>{line}</div>)}
+        </div>
+      )}
+      {data.list && data.list.length > 0 && (
+        <div className="mt-2 bg-white border border-gray-200 rounded p-2 text-xs">
+          <div className="font-bold mb-1">List of People and Groups</div>
+          {data.list.map((line, i) => <div key={i}>{line}</div>)}
+        </div>
+      )}
+      {data.summary && (
+        <div className="mt-2 text-sm text-gray-800 italic">{data.summary}</div>
+      )}
+    </div>
+  );
 }
 
 function QuestionBlock({
